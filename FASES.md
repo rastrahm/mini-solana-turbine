@@ -79,6 +79,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 3 — Wire format y parseo zero-copy de shreds
 
+**Estado:** cerrada (`cargo test` 30/30, `cargo clippy -D warnings` limpio).
+
 **Objetivo de aprendizaje:** `#[repr(C)]` / packed, validación, proyección de bytes a structs sin serializar.
 
 **Alcance**

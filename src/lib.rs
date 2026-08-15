@@ -1,6 +1,6 @@
 //! Crate de aprendizaje: ingestión de shreds y fanout estilo Turbine.
 //!
-//! Fase 2: [`arena`] ofrece slots fijos. El parseo, UDP y FEC siguen siendo stubs.
+//! Fase 3: [`shred::parse`] proyecta headers packed y payloads sobre slots de [`arena`].
 
 pub mod arena;
 pub mod error;
@@ -11,20 +11,18 @@ pub mod turbine;
 
 pub use arena::{PacketArena, SlotId, PACKET_SIZE};
 pub use error::Error;
+pub use shred::{CodeShred, DataShred, Shred, ShredHeader};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Purpose: Humo de API pública: los stubs existen y usan el mismo `Error`.
+    /// Purpose: Humo de API: shred ya parsea; el resto de módulos siguen stub.
     /// Inputs: none.
-    /// Returns: panics si algún stub no devuelve `Unimplemented`.
+    /// Returns: panics si un stub no devuelve `Unimplemented` o si parse([]) no trunca.
     #[test]
     fn stubs_share_unimplemented_error() {
-        assert!(matches!(
-            shred::parse(&[]),
-            Err(Error::Unimplemented { module: "shred" })
-        ));
+        assert_eq!(shred::parse(&[]), Err(Error::ShredTruncated));
         assert!(matches!(
             ingress::uring_udp::UdpIngress::bind("127.0.0.1:0"),
             Err(Error::Unimplemented { module: "ingress" })
