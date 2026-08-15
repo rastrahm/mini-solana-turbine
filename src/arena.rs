@@ -175,6 +175,14 @@ impl<const SLOTS: usize> PacketArena<SLOTS> {
         Ok(&mut self.storage[start..start + PACKET_SIZE])
     }
 
+    /// Purpose: Puntero al inicio del slot para que `io_uring` escriba ahí.
+    /// Inputs: `id` — slot ocupado. No usar [`slot_mut`] hasta que el recv termine.
+    /// Returns: `*mut u8` estable mientras el `Box` del backing no se mueva ni se libere el slot.
+    #[inline(always)]
+    pub fn slot_mut_ptr(&mut self, id: SlotId) -> Result<*mut u8, Error> {
+        Ok(self.slot_mut(id)?.as_mut_ptr())
+    }
+
     /// Purpose: Fija cuántos bytes del slot son payload válido.
     /// Inputs: `id` — slot ocupado; `len` — `0..=PACKET_SIZE`.
     /// Returns: `Ok(())`; `Err(ArenaLenOutOfRange)` si `len > PACKET_SIZE`.

@@ -120,6 +120,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 5 — Ingress UDP con io_uring
 
+**Estado:** cerrada (`cargo test` 37/37, `cargo clippy -D warnings` limpio).
+
 **Objetivo de aprendizaje:** recv UDP de baja latencia, llenar slots de arena desde el kernel sin copias extra.
 
 **Alcance**
