@@ -1,5 +1,6 @@
 //! Integración en memoria: parse + FEC + árbol, sin red.
 
+use mini_solana_turbine::pipeline::MAX_FORWARD;
 use mini_solana_turbine::shred::{self, CodeShredHeader, DataShredHeader, ShredHeader};
 use mini_solana_turbine::turbine::{self, Node, NodeId, Stake};
 use mini_solana_turbine::{
@@ -125,4 +126,68 @@ fn arena_slot_queue_feeds_pipeline() {
     let result = pipe.ingest_slot(&arena, got).expect("ingest slot");
     assert_eq!(result.reconstructed(), 0);
     assert!(!result.forward().is_empty());
+}
+
+/// Purpose: `dest_addrs` resuelve hijos de la raíz a `127.0.0.1:9002/9003`.
+/// Inputs: none.
+/// Returns: panics si los SocketAddr no coinciden con el cluster.
+#[test]
+fn dest_addrs_resolves_tree_children() {
+    let tree = sample_tree().expect("tree");
+    let mut pipe = Pipeline::with_defaults(tree, NodeId::new(1)).expect("pipe");
+    let mut d0 = [0u8; DEFAULT_SHARD_BYTES];
+    fill(&mut d0, 3);
+    let mut d1 = [0u8; DEFAULT_SHARD_BYTES];
+    fill(&mut d1, 4);
+    let mut r0 = [0u8; DEFAULT_SHARD_BYTES];
+    FecEngine::new(2, 1, DEFAULT_SHARD_BYTES)
+        .expect("fec")
+        .encode(&[&d0, &d1], &mut [&mut r0])
+        .expect("encode");
+
+    let mut pkt = [0u8; PACKET_SIZE];
+    let n = shred::encode_data(
+        &mut pkt,
+        ShredHeader::data(1, 0, 0, 1),
+        DataShredHeader::new(1, 0),
+        &d0,
+    )
+    .expect("enc");
+    let plan = pipe.ingest_bytes(&pkt[..n]).expect("ingest").forward();
+
+    let mut addrs = [addr(0); MAX_FORWARD];
+    let n_dest = pipe.dest_addrs(&plan, &mut addrs).expect("addrs");
+    assert_eq!(n_dest, 2);
+    assert_eq!(&addrs[..n_dest], &[addr(2), addr(3)]);
+}
+
+/// Purpose: Una hoja no tiene destinos UDP.
+/// Inputs: none.
+/// Returns: panics si `dest_addrs` no da 0.
+#[test]
+fn dest_addrs_leaf_is_empty() {
+    let tree = sample_tree().expect("tree");
+    let mut pipe = Pipeline::with_defaults(tree, NodeId::new(4)).expect("pipe");
+    let mut d0 = [0u8; DEFAULT_SHARD_BYTES];
+    fill(&mut d0, 5);
+    let mut d1 = [0u8; DEFAULT_SHARD_BYTES];
+    fill(&mut d1, 6);
+    let mut r0 = [0u8; DEFAULT_SHARD_BYTES];
+    FecEngine::new(2, 1, DEFAULT_SHARD_BYTES)
+        .expect("fec")
+        .encode(&[&d0, &d1], &mut [&mut r0])
+        .expect("encode");
+
+    let mut pkt = [0u8; PACKET_SIZE];
+    let n = shred::encode_data(
+        &mut pkt,
+        ShredHeader::data(1, 0, 0, 1),
+        DataShredHeader::new(1, 0),
+        &d0,
+    )
+    .expect("enc");
+    let plan = pipe.ingest_bytes(&pkt[..n]).expect("ingest").forward();
+    let mut addrs = [addr(0); MAX_FORWARD];
+    let n_dest = pipe.dest_addrs(&plan, &mut addrs).expect("addrs");
+    assert_eq!(n_dest, 0);
 }

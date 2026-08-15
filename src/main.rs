@@ -1,7 +1,8 @@
 //! Arranque del validador: argumentos, cluster de ejemplo y flujo documentado.
 //!
 //! No abre el loop `io_uring` (eso bloquearía). Enlace mental:
-//! `recv_into` → [`slot_queue`] → [`Pipeline::ingest_slot`] → [`ForwardPlan`] (send en fase 8).
+//! `recv_into` → [`slot_queue`] → [`Pipeline::ingest_slot`] → [`Pipeline::dest_addrs`]
+//! → [`UdpIngress::forward_slot`] (mismos bytes del slot).
 
 use mini_solana_turbine::pipeline::Pipeline;
 use mini_solana_turbine::turbine::{self, Node, NodeId, Stake};
@@ -54,12 +55,13 @@ fn main() -> Result<(), Error> {
     let pipeline = Pipeline::with_defaults(tree, self_id)?;
     let _ = writeln!(
         io::stdout(),
-        "mini-solana-turbine fase 7\n\
+        "mini-solana-turbine fase 8\n\
          bind (validado, no escuchando): {bind}\n\
          self: {:?}\n\
          flujo: UDP recv_into(arena) -> slot_queue -> Pipeline::ingest_slot\n\
          ingest: parse shred -> scratch FEC -> try reconstruct -> ForwardPlan\n\
-         ForwardPlan no envía (fase 8). destinos lógicos de self: hijos del árbol.",
+         send: dest_addrs(plan) -> UdpIngress::forward_slot (bytes del slot, no clone)\n\
+         benches: cargo bench --bench shred_throughput",
         pipeline.self_id()
     );
     Ok(())

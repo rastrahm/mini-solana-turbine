@@ -178,6 +178,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 8 — Forward UDP y benches
 
+**Estado:** cerrada (`cargo test` 51/51, `cargo clippy --all-targets -D warnings` limpio, `cargo bench --bench shred_throughput` corre).
+
 **Objetivo de aprendizaje:** medir, no “optimizar a ciegas”.
 
 **Alcance**
@@ -222,3 +224,20 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 | 6 | `src/turbine/tree.rs` |
 | 7 | `src/pipeline.rs`, `src/main.rs`, `tests/` |
 | 8 | `benches/shred_throughput.rs`, send path |
+
+---
+
+## Números de referencia (Fase 8)
+
+Host de cierre: Intel Core Ultra 9 275HX, Linux 6.18.7 x86_64. Criterion 0.5, `sample_size=20`, `measurement_time=3s`, backend plotters (sin gnuplot). Fecha: 2026-08-15.
+
+Comando: `cargo bench --bench shred_throughput`.
+
+| Bench | Tiempo (mediana) | Throughput |
+| --- | --- | --- |
+| `parse/parse_data_shred` (88 B: overhead data + shard 64) | 9.93 ns | 8.25 GiB/s |
+| `fec/encode_2_1_64` (192 B de shards) | 31.8 ns | 5.63 GiB/s |
+| `fec/decode_1_erasure` (mismo set, 1 data faltante) | 89.4 µs | 2.05 MiB/s |
+| `arena/acquire_copy_release` (`PACKET_SIZE=1228`) | 8.01 ns | 142.9 GiB/s |
+
+Notas: el throughput de Criterion es `bytes_marcados / tiempo`; no es Gbps de red. `decode` es órdenes de magnitud más lento que `encode` en este tamaño de shard (workspace SIMD del decoder). `arena` copia 1228 B en L1; el número no incluye UDP. No optimizar a ciegas a partir de una sola máquina.

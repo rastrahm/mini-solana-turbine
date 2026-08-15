@@ -31,6 +31,16 @@ struct RecvSlot {
 // vive y el slot sigue ocupado. No hay alias `&mut [u8]` concurrente sobre ese rango.
 unsafe impl Send for RecvSlot {}
 
+/// Buffer `IoBuf` de envío: mismos bytes del slot, solo lectura.
+struct SendSlot {
+    ptr: *const u8,
+    len: usize,
+}
+
+// SAFETY: igual que `RecvSlot`: el slot permanece ocupado y `arena` no se muta
+// durante el await de `send_to`.
+unsafe impl Send for SendSlot {}
+
 impl UdpIngress {
     /// Purpose: Interpreta un bind addr (`host:port`) sin I/O.
     /// Inputs: `addr` — p. ej. `127.0.0.1:0`.
@@ -105,6 +115,44 @@ impl UdpIngress {
             }
         }
     }
+
+    /// Purpose: Envía los bytes comprometidos del slot a `dest` (sin `Vec` ni clone).
+    /// Inputs: `arena` — debe vivir hasta que termine el await; `slot` — handle
+    ///   con `len` fijado; `dest` — UDP destino.
+    /// Returns: bytes enviados, o `Arena*` / [`Error::IngressSend`].
+    pub async fn send_slot<const SLOTS: usize>(
+        &self,
+        arena: &PacketArena<SLOTS>,
+        slot: SlotId,
+        dest: SocketAddr,
+    ) -> Result<usize, Error> {
+        let bytes = arena.slot(slot)?;
+        let buf = SendSlot {
+            ptr: bytes.as_ptr(),
+            len: bytes.len(),
+        };
+        let (res, _) = self.socket.send_to(buf, dest).await;
+        res.map_err(|_| Error::IngressSend)
+    }
+
+    /// Purpose: Reenvía el mismo slot a cada addr de un [`crate::ForwardPlan`].
+    /// Inputs: `arena` / `slot` — payload ya ingerido; `dests` — salida de
+    ///   [`crate::Pipeline::dest_addrs`].
+    /// Returns: datagramas enviados (`dests.len()` si todos ok), o el primer
+    ///   `IngressSend`. Un plan vacío no hace I/O.
+    pub async fn forward_slot<const SLOTS: usize>(
+        &self,
+        arena: &PacketArena<SLOTS>,
+        slot: SlotId,
+        dests: &[SocketAddr],
+    ) -> Result<usize, Error> {
+        let mut sent = 0usize;
+        for dest in dests {
+            let _n = self.send_slot(arena, slot, *dest).await?;
+            sent += 1;
+        }
+        Ok(sent)
+    }
 }
 
 // SAFETY: `ptr` es el backing heap de `PacketArena` (Box), estable si el struct
@@ -147,6 +195,34 @@ unsafe impl IoBufMut for RecvSlot {
     /// Returns: none.
     unsafe fn set_init(&mut self, pos: usize) {
         self.init = pos;
+    }
+}
+
+// SAFETY: `ptr` apunta al backing de `PacketArena` mientras el slot está ocupado;
+// `len` es `arena.len(slot)`. El kernel solo lee esos bytes en `send_to`.
+unsafe impl IoBuf for SendSlot {
+    /// Purpose: Puntero estable para el SQE de send.
+    /// Inputs: none (`&self`).
+    /// Returns: inicio del payload del slot.
+    #[inline(always)]
+    fn stable_ptr(&self) -> *const u8 {
+        self.ptr
+    }
+
+    /// Purpose: Bytes a transmitir (el `len` comprometido).
+    /// Inputs: none.
+    /// Returns: `len`.
+    #[inline(always)]
+    fn bytes_init(&self) -> usize {
+        self.len
+    }
+
+    /// Purpose: Capacidad presentada a `send_to` (solo el payload válido).
+    /// Inputs: none.
+    /// Returns: `len`.
+    #[inline(always)]
+    fn bytes_total(&self) -> usize {
+        self.len
     }
 }
 
@@ -196,6 +272,75 @@ mod tests {
             payload
         );
         let _ = arena.release(recvd.slot);
+        Ok(())
+    }
+
+    /// Purpose: Loopback: send uring desde un slot → recv std, mismos bytes.
+    /// Inputs: none.
+    /// Returns: panics si el datagrama no coincide con el slot.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn send_slot_loopback_reuses_arena() {
+        let result = tokio_uring::start(async { send_slot_loopback_body().await });
+        result.expect("loopback send");
+    }
+
+    /// Purpose: Cuerpo async del send loopback.
+    /// Inputs: none.
+    /// Returns: `Ok` si std recibe `hello-send`.
+    #[cfg(target_os = "linux")]
+    async fn send_slot_loopback_body() -> Result<(), Error> {
+        use std::time::Duration;
+        let receiver = UdpSocket::bind("127.0.0.1:0").map_err(|_| Error::IngressBind)?;
+        receiver
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .map_err(|_| Error::IngressBind)?;
+        let dest = receiver.local_addr().map_err(|_| Error::IngressBind)?;
+        let ingress = UdpIngress::bind("127.0.0.1:0").await?;
+
+        let payload = b"hello-send";
+        let mut arena = PacketArena::<4>::new();
+        let slot = arena.acquire()?;
+        {
+            let buf = arena.slot_mut(slot)?;
+            buf[..payload.len()].copy_from_slice(payload);
+        }
+        arena.set_len(slot, payload.len())?;
+
+        let n = ingress.send_slot(&arena, slot, dest).await?;
+        assert_eq!(n, payload.len());
+
+        let mut got = [0u8; 32];
+        let (got_n, _) = receiver
+            .recv_from(&mut got)
+            .map_err(|_| Error::IngressRecv)?;
+        assert_eq!(&got[..got_n], payload);
+        let _ = arena.release(slot);
+        Ok(())
+    }
+
+    /// Purpose: `forward_slot` con destinos vacíos no envía.
+    /// Inputs: none.
+    /// Returns: panics si el conteo no es 0.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn forward_slot_empty_is_noop() {
+        let result = tokio_uring::start(async { forward_empty_body().await });
+        result.expect("empty forward");
+    }
+
+    /// Purpose: Cuerpo async de forward vacío.
+    /// Inputs: none.
+    /// Returns: `Ok` si `forward_slot` da 0.
+    #[cfg(target_os = "linux")]
+    async fn forward_empty_body() -> Result<(), Error> {
+        let ingress = UdpIngress::bind("127.0.0.1:0").await?;
+        let mut arena = PacketArena::<1>::new();
+        let slot = arena.acquire()?;
+        arena.set_len(slot, 0)?;
+        let sent = ingress.forward_slot(&arena, slot, &[]).await?;
+        assert_eq!(sent, 0);
+        let _ = arena.release(slot);
         Ok(())
     }
 }

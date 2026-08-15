@@ -1,6 +1,7 @@
 //! Crate de aprendizaje: ingestión de shreds y fanout estilo Turbine.
 //!
-//! Fase 7: [`pipeline::Pipeline`] une parse, FEC y destinos Turbine.
+//! Fase 8: [`UdpIngress::send_slot`] / [`UdpIngress::forward_slot`] reenvían
+//! el payload del arena; `benches/shred_throughput.rs` mide parse, FEC y arena.
 
 pub mod arena;
 pub mod error;
@@ -22,7 +23,7 @@ pub use turbine::{Node, NodeId, Stake, TurbineTree};
 mod tests {
     use super::*;
 
-    /// Purpose: Humo de API tras unir el pipeline.
+    /// Purpose: Humo de API tras parse, FEC, ingress y árbol.
     /// Inputs: none.
     /// Returns: panics si parse o cluster vacío no dan los errores esperados.
     #[test]
