@@ -8,6 +8,7 @@ publish = false
 
 [dependencies]
 thiserror = "2"
+reed-solomon-simd = "3"
 
 [lib]
 name = "mini_solana_turbine"

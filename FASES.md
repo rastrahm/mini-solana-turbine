@@ -101,6 +101,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 4 — FEC Reed-Solomon (SIMD)
 
+**Estado:** cerrada (`cargo test` 36/36, `cargo clippy -D warnings` limpio).
+
 **Objetivo de aprendizaje:** erasure coding, reconstruir data shreds a partir de un subconjunto + code shreds.
 
 **Alcance**
