@@ -141,6 +141,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 6 — Árbol Turbine (stake-weighted fanout)
 
+**Estado:** cerrada (`cargo test` 44/44, `cargo clippy -D warnings` limpio).
+
 **Objetivo de aprendizaje:** quién reenvía a quién según stake; fanout fijo.
 
 **Alcance**

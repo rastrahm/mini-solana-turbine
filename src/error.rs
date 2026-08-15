@@ -1,7 +1,6 @@
 //! Errores zero-cost del crate (`thiserror`, sin `String` ni `anyhow`).
 //!
-//! Vivos: arena, shred, FEC e ingress UDP.
-//! Turbine sigue en [`Error::Unimplemented`].
+//! Vivos: arena, shred, FEC, ingress y árbol Turbine.
 
 use thiserror::Error;
 
