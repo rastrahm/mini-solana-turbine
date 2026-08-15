@@ -10,6 +10,7 @@ publish = false
 thiserror = "2"
 reed-solomon-simd = "3"
 tokio-uring = "0.5"
+crossbeam-channel = "0.5"
 
 [lib]
 name = "mini_solana_turbine"
