@@ -1,0 +1,61 @@
+# .cursorrules — mini-solana-turbine
+
+## PROJECT OVERVIEW
+`mini-solana-turbine` is a high-performance, low-latency block propagation and shred ingestion engine in Rust. It mimics the core network pipeline of a Solana validator, leveraging Linux `io_uring` for UDP kernel bypass, SIMD-accelerated Reed-Solomon erasure coding, and lock-free data structures.
+
+---
+
+## 1. TECHNICAL STACK & CONSTRAINTS
+
+- **Language & Standard:** Rust (2021 edition or newer).
+- **Crate layout:** un solo crate (no workspace). Seguir el árbol de la sección 3.
+- **Core Dependencies:**
+  - `tokio` & `tokio-uring` (Linux `io_uring` async UDP sockets)
+  - `reed-solomon-simd` (AVX2 / SIMD-accelerated erasure coding)
+  - `crossbeam-epoch` / `dashmap` / `crossbeam-channel` (lock-free; no `Bytes` para payloads)
+  - `thiserror` (únicos errores de crate y binario; **no** `anyhow`)
+  - `criterion` (benchmarks)
+- **Target OS:** Linux x86_64 (Kernel 6.8+).
+- **Forbidden Patterns:**
+  - Cero allocs de heap en hot paths (no `Vec`/`Box`/`String`/`Bytes` para paquetes).
+  - No `unwrap()` or `expect()` in production modules.
+  - Payloads: slices sobre **arenas estáticas** de tamaño fijo. No clonar `Vec<u8>`.
+- **Documentación:** proyecto de aprendizaje. Toda función lleva `///` con Purpose, Inputs y Returns.
+- **`unsafe`:** permitido solo acotado, con comentario `SAFETY:` que justifique invariantes.
+- **Fases:** implementar según `FASES.md`; no saltar de fase sin autorización.
+
+---
+
+## 2. RUST CODING CONVENTIONS & ARCHITECTURE
+
+- **Memory Layout:** Wire protocol structs (`ShredHeader`, `DataShred`, `CodeShred`) must be declared with `#[repr(C)]` or `#[repr(packed)]` to guarantee binary compatibility without intermediate serialization layers.
+- **Inlining:** Annotate all hot-path functions (shred parsing, XOR operations, header validation) with `#[inline(always)]`.
+- **Concurrency:** Prefer atomics (`AtomicU64`, `AtomicBool`) and lock-free queues (`crossbeam-channel`) over heavy sync primitives (`Mutex`, `RwLock`).
+- **Error Handling:** Use custom error enums via `thiserror`. Propagate errors explicitly using `?`.
+
+---
+
+## 3. PROJECT DIRECTORY STRUCTURE
+
+```text
+mini-solana-turbine/
+├── Cargo.toml
+├── FASES.md
+├── .gitignore
+├── .cursorrules
+├── rust.cursorrules
+├── src/
+│   ├── lib.rs
+│   ├── main.rs
+│   ├── shred.rs            # Binary Shred layouts (Data vs Code) & Zero-Copy parsing
+│   ├── ingress/
+│   │   ├── mod.rs
+│   │   └── uring_udp.rs    # io_uring UDP ring buffer receiver
+│   ├── fec/
+│   │   ├── mod.rs
+│   │   └── reed_solomon.rs # SIMD Erasure Coding decoder & reconstruction
+│   └── turbine/
+│       ├── mod.rs
+│       └── tree.rs         # Stake-weighted fanout tree calculation & routing
+└── benches/
+    └── shred_throughput.rs # Latency & Gbps throughput benchmarks

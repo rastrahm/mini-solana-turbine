@@ -1,0 +1,35 @@
+# Rust build
+/target/
+**/*.rs.bk
+*.pdb
+
+# IDE / editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Profiling / benches artifacts
+perf.data
+perf.data.old
+flamegraph.svg
+*.profraw
+*.profdata
+criterion/ # local html dump if generated outside target/
+
+# Debug / core
+core
+*.core
+
+# Env / secrets
+.env
+.env.*
+*.pem
+
+# Graphify / generated analysis
+graphify-out/

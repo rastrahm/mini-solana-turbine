@@ -1,0 +1,20 @@
+# Rust Rules
+## General Principles
+- **Ownership & Borrowing**: Prefer idiomatic ownership. Avoid unnecessary `.clone()`.
+- **Error Handling**: `Result` / `Option` + `thiserror` only. No `anyhow`. No `.unwrap()` / `.expect()` in production modules.
+- **TDD**: Write tests in the same file (`mod tests`) or `tests/` before implementation. Run `cargo test` before suggesting completion.
+
+## Standards
+- Follow `clippy` and `rustfmt`.
+- Single crate with modules (not a Cargo workspace). Features only if a later phase needs them.
+- Document **every** function with `///` (learning project):
+  - **Purpose**: What the function does.
+  - **Inputs**: Each parameter.
+  - **Returns**: Output and error cases.
+- Use `//` for non-doc inline comments on internal logic.
+
+# Rust Rule Set
+- **Safety**: `unsafe` only if scoped, unavoidable, and preceded by `SAFETY:` explaining the invariants. Prefer `Option`/`Result` over `.unwrap()`.
+- **Idiomatic Rust**: `match` and `if let` for pattern matching. Be explicit with types; avoid magic macros that hide logic.
+- **Architecture**: Newtype for domain types. Modules as in `.cursorrules` (one crate).
+- **Hot path**: slices over static arenas; zero heap allocation for packet payloads.
