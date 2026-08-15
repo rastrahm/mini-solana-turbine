@@ -1,18 +1,20 @@
 //! Crate de aprendizaje: ingestión de shreds y fanout estilo Turbine.
 //!
-//! Fase 6: [`turbine::TurbineTree`] calcula el fanout; el envío UDP queda para la fase 8.
+//! Fase 7: [`pipeline::Pipeline`] une parse, FEC y destinos Turbine.
 
 pub mod arena;
 pub mod error;
 pub mod fec;
 pub mod ingress;
+pub mod pipeline;
 pub mod shred;
 pub mod turbine;
 
 pub use arena::{PacketArena, SlotId, PACKET_SIZE};
 pub use error::Error;
-pub use fec::FecEngine;
+pub use fec::{FecEngine, DEFAULT_SHARD_BYTES};
 pub use ingress::{RecvDatagram, UdpIngress};
+pub use pipeline::{slot_queue, ForwardPlan, IngestResult, Pipeline};
 pub use shred::{CodeShred, DataShred, Shred, ShredHeader};
 pub use turbine::{Node, NodeId, Stake, TurbineTree};
 
@@ -20,9 +22,9 @@ pub use turbine::{Node, NodeId, Stake, TurbineTree};
 mod tests {
     use super::*;
 
-    /// Purpose: Humo de API: módulos vivos; cluster vacío sigue siendo error de Turbine.
+    /// Purpose: Humo de API tras unir el pipeline.
     /// Inputs: none.
-    /// Returns: panics si parse falla o el cluster vacío no da `TurbineEmptyCluster`.
+    /// Returns: panics si parse o cluster vacío no dan los errores esperados.
     #[test]
     fn stubs_share_unimplemented_error() {
         assert_eq!(shred::parse(&[]), Err(Error::ShredTruncated));

@@ -159,6 +159,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 7 — Pipeline: ingest → parse → FEC → fanout (lógico)
 
+**Estado:** cerrada (`cargo test` 46/46, `cargo clippy -D warnings` limpio, `cargo run` documenta el flujo).
+
 **Objetivo de aprendizaje:** unir módulos sin meter heap en el camino del shred.
 
 **Alcance**

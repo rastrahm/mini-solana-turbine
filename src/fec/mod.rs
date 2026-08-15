@@ -2,4 +2,4 @@
 
 pub mod reed_solomon;
 
-pub use reed_solomon::FecEngine;
+pub use reed_solomon::{FecEngine, DEFAULT_SHARD_BYTES};
