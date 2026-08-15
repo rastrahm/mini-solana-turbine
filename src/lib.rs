@@ -1,6 +1,6 @@
 //! Crate de aprendizaje: ingestión de shreds y fanout estilo Turbine.
 //!
-//! Fase 3: [`shred::parse`] proyecta headers packed y payloads sobre slots de [`arena`].
+//! Fase 4: [`fec::FecEngine`] reconstruye shards; UDP y Turbine siguen stub.
 
 pub mod arena;
 pub mod error;
@@ -11,25 +11,23 @@ pub mod turbine;
 
 pub use arena::{PacketArena, SlotId, PACKET_SIZE};
 pub use error::Error;
+pub use fec::FecEngine;
 pub use shred::{CodeShred, DataShred, Shred, ShredHeader};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Purpose: Humo de API: shred ya parsea; el resto de módulos siguen stub.
+    /// Purpose: Humo de API: shred/fec vivos; ingress y turbine siguen stub.
     /// Inputs: none.
-    /// Returns: panics si un stub no devuelve `Unimplemented` o si parse([]) no trunca.
+    /// Returns: panics si parse([]) no trunca o un stub no es `Unimplemented`.
     #[test]
     fn stubs_share_unimplemented_error() {
         assert_eq!(shred::parse(&[]), Err(Error::ShredTruncated));
+        assert!(FecEngine::new(2, 1, 64).is_ok());
         assert!(matches!(
             ingress::uring_udp::UdpIngress::bind("127.0.0.1:0"),
             Err(Error::Unimplemented { module: "ingress" })
-        ));
-        assert!(matches!(
-            fec::reed_solomon::encode(),
-            Err(Error::Unimplemented { module: "fec" })
         ));
         assert!(matches!(
             turbine::tree::build(2),

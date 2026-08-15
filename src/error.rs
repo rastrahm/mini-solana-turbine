@@ -1,7 +1,7 @@
 //! Errores zero-cost del crate (`thiserror`, sin `String` ni `anyhow`).
 //!
-//! Vivos: arena (fase 2) y shred (fase 3: truncado, tipo, índices FEC).
-//! El resto son placeholders; ingress/fec/turbine siguen en [`Error::Unimplemented`].
+//! Vivos: arena (fase 2), shred (fase 3) y FEC (fase 4).
+//! Ingress/turbine siguen en [`Error::Unimplemented`].
 
 use thiserror::Error;
 
