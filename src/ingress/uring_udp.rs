@@ -46,7 +46,7 @@ impl UdpIngress {
     /// Inputs: `addr` — p. ej. `127.0.0.1:0`.
     /// Returns: `SocketAddr` o `IngressBind` si el parseo falla.
     pub fn parse_addr(addr: &str) -> Result<SocketAddr, Error> {
-        addr.parse().map_err(|_| Error::IngressBind)
+        crate::ingress::parse_addr(addr)
     }
 
     /// Purpose: Bind UDP vía `io_uring`.

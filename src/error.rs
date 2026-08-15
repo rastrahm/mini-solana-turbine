@@ -1,6 +1,6 @@
 //! Errores zero-cost del crate (`thiserror`, sin `String` ni `anyhow`).
 //!
-//! Vivos: arena, shred, FEC, ingress (recv/send) y árbol Turbine.
+//! Vivos: arena, shred (incl. firma educativa), FEC, ingress, métricas y Turbine.
 
 use thiserror::Error;
 
@@ -27,6 +27,14 @@ pub enum Error {
     /// Índices FEC incoherentes: `index < fec_set_index` o `position >= num_code` (fase 3).
     #[error("shred fec indices are invalid")]
     ShredInvalidFec,
+
+    /// La clave pública Ed25519 no es un punto válido (extra: firmas educativas).
+    #[error("shred public key is invalid")]
+    ShredInvalidKey,
+
+    /// La firma Ed25519 del shred no verifica (extra: no es el layout 100% Solana).
+    #[error("shred signature is invalid")]
+    ShredBadSignature,
 
     /// La arena no tiene slots libres (fase 2).
     #[error("packet arena has no free slots")]
@@ -105,6 +113,8 @@ mod tests {
             (Error::ShredTruncated, "shred header is truncated"),
             (Error::ShredInvalidType, "shred type flag is invalid"),
             (Error::ShredInvalidFec, "shred fec indices are invalid"),
+            (Error::ShredInvalidKey, "shred public key is invalid"),
+            (Error::ShredBadSignature, "shred signature is invalid"),
             (Error::ArenaExhausted, "packet arena has no free slots"),
             (Error::ArenaSlotOutOfRange, "slot index is out of range"),
             (

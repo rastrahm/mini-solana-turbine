@@ -1,7 +1,9 @@
 //! Integración en memoria: parse + FEC + árbol, sin red.
 
 use mini_solana_turbine::pipeline::MAX_FORWARD;
-use mini_solana_turbine::shred::{self, CodeShredHeader, DataShredHeader, ShredHeader};
+use mini_solana_turbine::shred::{
+    self, CodeShredHeader, DataShredHeader, ShredHeader, ShredSecretKey,
+};
 use mini_solana_turbine::turbine::{self, Node, NodeId, Stake};
 use mini_solana_turbine::{
     slot_queue, Error, FecEngine, PacketArena, Pipeline, DEFAULT_SHARD_BYTES, PACKET_SIZE,
@@ -77,10 +79,16 @@ fn reconstructs_missing_data_and_plans_forward() {
     let first = pipe.ingest_bytes(&pkt0[..n0]).expect("ingest d0");
     assert_eq!(first.reconstructed(), 0);
     assert_eq!(first.forward().dests(), &[NodeId::new(2), NodeId::new(3)]);
+    assert_eq!(pipe.metrics().received(), 1);
+    assert_eq!(pipe.metrics().dropped(), 0);
+    assert_eq!(pipe.metrics().reconstructed(), 0);
 
     let second = pipe.ingest_bytes(&pktc[..nc]).expect("ingest code");
     assert_eq!(second.reconstructed(), 1);
     assert_eq!(pipe.original_shard(1).expect("restored"), &d1[..]);
+    assert_eq!(pipe.metrics().received(), 2);
+    assert_eq!(pipe.metrics().reconstructed(), 1);
+    assert_eq!(pipe.metrics().dropped(), 0);
 }
 
 /// Purpose: Slot de arena + cola lock-free llegan al mismo ingest.
@@ -190,4 +198,64 @@ fn dest_addrs_leaf_is_empty() {
     let mut addrs = [addr(0); MAX_FORWARD];
     let n_dest = pipe.dest_addrs(&plan, &mut addrs).expect("addrs");
     assert_eq!(n_dest, 0);
+}
+
+/// Purpose: Un paquete basura incrementa received y dropped.
+/// Inputs: none.
+/// Returns: panics si dropped no es 1.
+#[test]
+fn ingest_error_counts_as_dropped() {
+    let tree = sample_tree().expect("tree");
+    let mut pipe = Pipeline::with_defaults(tree, NodeId::new(1)).expect("pipe");
+    assert_eq!(pipe.ingest_bytes(&[]).err(), Some(Error::ShredTruncated));
+    assert_eq!(pipe.metrics().received(), 1);
+    assert_eq!(pipe.metrics().dropped(), 1);
+    assert_eq!(pipe.metrics().reconstructed(), 0);
+}
+
+/// Purpose: Con líder, solo entra un data shred firmado.
+/// Inputs: none.
+/// Returns: panics si el unsigned se droppea o el firmado no pasa.
+#[test]
+fn ingest_signed_requires_leader_key() {
+    let tree = sample_tree().expect("tree");
+    let mut pipe = Pipeline::with_defaults(tree, NodeId::new(1)).expect("pipe");
+    let sk = ShredSecretKey::from_bytes([11u8; 32]);
+    pipe.require_leader(sk.public());
+
+    let mut d0 = [0u8; DEFAULT_SHARD_BYTES];
+    fill(&mut d0, 21);
+    let mut d1 = [0u8; DEFAULT_SHARD_BYTES];
+    fill(&mut d1, 22);
+    let mut r0 = [0u8; DEFAULT_SHARD_BYTES];
+    FecEngine::new(2, 1, DEFAULT_SHARD_BYTES)
+        .expect("fec")
+        .encode(&[&d0, &d1], &mut [&mut r0])
+        .expect("encode");
+
+    let mut unsigned = [0u8; PACKET_SIZE];
+    let nu = shred::encode_data(
+        &mut unsigned,
+        ShredHeader::data(1, 0, 0, 1),
+        DataShredHeader::new(1, 0),
+        &d0,
+    )
+    .expect("enc unsigned");
+    assert_eq!(
+        pipe.ingest_bytes(&unsigned[..nu]),
+        Err(Error::ShredBadSignature)
+    );
+    assert_eq!(pipe.metrics().dropped(), 1);
+
+    let mut signed = [0u8; PACKET_SIZE];
+    let ns = shred::encode_signed_data(
+        &mut signed,
+        &sk,
+        ShredHeader::data(1, 0, 0, 1),
+        DataShredHeader::new(1, 0),
+        &d0,
+    )
+    .expect("enc signed");
+    let ok = pipe.ingest_bytes(&signed[..ns]).expect("ingest signed");
+    assert_eq!(ok.reconstructed(), 0);
 }

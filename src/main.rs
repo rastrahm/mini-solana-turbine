@@ -2,11 +2,11 @@
 //!
 //! No abre el loop `io_uring` (eso bloquearía). Enlace mental:
 //! `recv_into` → [`slot_queue`] → [`Pipeline::ingest_slot`] → [`Pipeline::dest_addrs`]
-//! → [`UdpIngress::forward_slot`] (mismos bytes del slot).
+//! → send del slot (feature `uring`). Extra: métricas atómicas y firma opcional.
 
 use mini_solana_turbine::pipeline::Pipeline;
 use mini_solana_turbine::turbine::{self, Node, NodeId, Stake};
-use mini_solana_turbine::{Error, UdpIngress};
+use mini_solana_turbine::{parse_addr, Error};
 use std::env;
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -24,10 +24,10 @@ fn peer_addr(id: u32) -> SocketAddr {
 fn bind_from_args() -> Result<SocketAddr, Error> {
     for a in env::args().skip(1) {
         if let Some(rest) = a.strip_prefix("--bind=") {
-            return UdpIngress::parse_addr(rest);
+            return parse_addr(rest);
         }
     }
-    UdpIngress::parse_addr("127.0.0.1:8001")
+    parse_addr("127.0.0.1:8001")
 }
 
 /// Purpose: Cluster de 4 nodos de demostración; id 1 es raíz.
@@ -53,16 +53,21 @@ fn main() -> Result<(), Error> {
     let tree = demo_tree()?;
     let self_id = NodeId::new(1);
     let pipeline = Pipeline::with_defaults(tree, self_id)?;
+    let m = pipeline.metrics();
     let _ = writeln!(
         io::stdout(),
-        "mini-solana-turbine fase 8\n\
+        "mini-solana-turbine extra\n\
          bind (validado, no escuchando): {bind}\n\
          self: {:?}\n\
+         métricas: recv={} recon={} drop={}\n\
          flujo: UDP recv_into(arena) -> slot_queue -> Pipeline::ingest_slot\n\
-         ingest: parse shred -> scratch FEC -> try reconstruct -> ForwardPlan\n\
-         send: dest_addrs(plan) -> UdpIngress::forward_slot (bytes del slot, no clone)\n\
-         benches: cargo bench --bench shred_throughput",
-        pipeline.self_id()
+         ingest: [firma opcional] parse shred -> scratch FEC -> ForwardPlan\n\
+         send: dest_addrs(plan) -> forward_slot (feature uring)\n\
+         features: default=[uring,simd]",
+        pipeline.self_id(),
+        m.received(),
+        m.reconstructed(),
+        m.dropped()
     );
     Ok(())
 }

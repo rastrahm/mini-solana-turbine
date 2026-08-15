@@ -6,7 +6,7 @@
 
 ## Standards
 - Follow `clippy` and `rustfmt`.
-- Single crate with modules (not a Cargo workspace). Features only if a later phase needs them.
+- Single crate with modules (not a Cargo workspace). Features: `uring`, `simd` (ambas default).
 - Document **every** function with `///` (learning project):
   - **Purpose**: What the function does.
   - **Inputs**: Each parameter.
