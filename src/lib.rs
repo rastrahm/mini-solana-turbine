@@ -1,6 +1,6 @@
 //! Crate de aprendizaje: ingestión de shreds y fanout estilo Turbine.
 //!
-//! Fase 5: [`ingress::UdpIngress`] recibe UDP en slots de arena; Turbine sigue stub.
+//! Fase 6: [`turbine::TurbineTree`] calcula el fanout; el envío UDP queda para la fase 8.
 
 pub mod arena;
 pub mod error;
@@ -14,14 +14,15 @@ pub use error::Error;
 pub use fec::FecEngine;
 pub use ingress::{RecvDatagram, UdpIngress};
 pub use shred::{CodeShred, DataShred, Shred, ShredHeader};
+pub use turbine::{Node, NodeId, Stake, TurbineTree};
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Purpose: Humo de API: shred/fec/ingress parse; turbine sigue stub.
+    /// Purpose: Humo de API: módulos vivos; cluster vacío sigue siendo error de Turbine.
     /// Inputs: none.
-    /// Returns: panics si parse([]) no trunca o el stub de turbine no es `Unimplemented`.
+    /// Returns: panics si parse falla o el cluster vacío no da `TurbineEmptyCluster`.
     #[test]
     fn stubs_share_unimplemented_error() {
         assert_eq!(shred::parse(&[]), Err(Error::ShredTruncated));
@@ -30,9 +31,9 @@ mod tests {
             ingress::uring_udp::UdpIngress::parse_addr("nope"),
             Err(Error::IngressBind)
         );
-        assert!(matches!(
-            turbine::tree::build(2),
-            Err(Error::Unimplemented { module: "turbine" })
-        ));
+        assert_eq!(
+            turbine::tree::build(&[], 2).err(),
+            Some(Error::TurbineEmptyCluster)
+        );
     }
 }
