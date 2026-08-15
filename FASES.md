@@ -58,6 +58,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ## Fase 2 — Arenas estáticas y buffers de paquete
 
+**Estado:** cerrada (`cargo test` 18/18, `cargo clippy -D warnings` limpio).
+
 **Objetivo de aprendizaje:** memoria de tamaño fijo, proyección a slices, cero heap en el camino de un paquete.
 
 **Alcance**

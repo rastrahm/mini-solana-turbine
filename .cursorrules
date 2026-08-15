@@ -48,6 +48,7 @@ mini-solana-turbine/
 │   ├── lib.rs
 │   ├── main.rs
 │   ├── error.rs            # thiserror enum (variantes placeholder por fase)
+│   ├── arena.rs            # Slots fijos, acquire/release, slices sobre backing único
 │   ├── shred.rs            # Binary Shred layouts (Data vs Code) & Zero-Copy parsing
 │   ├── ingress/
 │   │   ├── mod.rs

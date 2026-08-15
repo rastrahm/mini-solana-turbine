@@ -1,7 +1,9 @@
 //! Errores zero-cost del crate (`thiserror`, sin `String` ni `anyhow`).
 //!
-//! Las variantes cubren fases posteriores; en la fase 1 los stubs solo
-//! devuelven [`Error::Unimplemented`].
+//! [`Error::ArenaExhausted`], [`Error::ArenaSlotOutOfRange`] y
+//! [`Error::ArenaLenOutOfRange`] están vivos desde la fase 2. El resto son
+//! variantes placeholder para fases posteriores; los stubs siguen devolviendo
+//! [`Error::Unimplemented`].
 
 use thiserror::Error;
 
@@ -32,6 +34,10 @@ pub enum Error {
     /// El índice de slot no pertenece a la arena (fase 2).
     #[error("slot index is out of range")]
     ArenaSlotOutOfRange,
+
+    /// `set_len` pidió más bytes que `PACKET_SIZE` (fase 2).
+    #[error("packet length exceeds slot capacity")]
+    ArenaLenOutOfRange,
 
     /// Hay más erasures que paridad disponible (fase 4).
     #[error("fec: too many erasures to reconstruct")]
@@ -95,6 +101,10 @@ mod tests {
             (Error::ShredInvalidType, "shred type flag is invalid"),
             (Error::ArenaExhausted, "packet arena has no free slots"),
             (Error::ArenaSlotOutOfRange, "slot index is out of range"),
+            (
+                Error::ArenaLenOutOfRange,
+                "packet length exceeds slot capacity",
+            ),
             (
                 Error::FecTooManyErasures,
                 "fec: too many erasures to reconstruct",

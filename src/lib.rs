@@ -1,14 +1,15 @@
 //! Crate de aprendizaje: ingestión de shreds y fanout estilo Turbine.
 //!
-//! Fase 1: módulos públicos, errores con `thiserror` y stubs documentados.
-//! No parsea shreds, no abre sockets y no reserva arenas.
+//! Fase 2: [`arena`] ofrece slots fijos. El parseo, UDP y FEC siguen siendo stubs.
 
+pub mod arena;
 pub mod error;
 pub mod fec;
 pub mod ingress;
 pub mod shred;
 pub mod turbine;
 
+pub use arena::{PacketArena, SlotId, PACKET_SIZE};
 pub use error::Error;
 
 #[cfg(test)]
