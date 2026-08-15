@@ -1,0 +1,18 @@
+[package]
+name = "mini-solana-turbine"
+version = "0.1.0"
+edition = "2021"
+description = "Motor educativo de ingestión de shreds y fanout estilo Turbine (Solana)"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[dependencies]
+thiserror = "2"
+
+[lib]
+name = "mini_solana_turbine"
+path = "src/lib.rs"
+
+[[bin]]
+name = "mini-solana-turbine"
+path = "src/main.rs"

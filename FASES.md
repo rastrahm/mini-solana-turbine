@@ -20,9 +20,9 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ---
 
-## Fase 0 — Plan y scaffolding de repo (esta entrega)
+## Fase 0 — Plan y scaffolding de repo
 
-**Estado:** en curso (solo documentos y `.gitignore`; sin código Rust).
+**Estado:** cerrada.
 
 **Alcance**
 
@@ -37,6 +37,8 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 ---
 
 ## Fase 1 — Crate, módulos vacíos y errores
+
+**Estado:** cerrada (`cargo test` 8/8, `cargo clippy -D warnings` limpio).
 
 **Objetivo de aprendizaje:** crate binario+librería, módulos públicos, errores zero-cost.
 
