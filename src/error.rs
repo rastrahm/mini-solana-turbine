@@ -1,9 +1,7 @@
 //! Errores zero-cost del crate (`thiserror`, sin `String` ni `anyhow`).
 //!
-//! [`Error::ArenaExhausted`], [`Error::ArenaSlotOutOfRange`] y
-//! [`Error::ArenaLenOutOfRange`] están vivos desde la fase 2. El resto son
-//! variantes placeholder para fases posteriores; los stubs siguen devolviendo
-//! [`Error::Unimplemented`].
+//! Vivos: arena (fase 2) y shred (fase 3: truncado, tipo, índices FEC).
+//! El resto son placeholders; ingress/fec/turbine siguen en [`Error::Unimplemented`].
 
 use thiserror::Error;
 
@@ -26,6 +24,10 @@ pub enum Error {
     /// El flag data/code del shred no es válido (fase 3).
     #[error("shred type flag is invalid")]
     ShredInvalidType,
+
+    /// Índices FEC incoherentes: `index < fec_set_index` o `position >= num_code` (fase 3).
+    #[error("shred fec indices are invalid")]
+    ShredInvalidFec,
 
     /// La arena no tiene slots libres (fase 2).
     #[error("packet arena has no free slots")]
@@ -99,6 +101,7 @@ mod tests {
             ),
             (Error::ShredTruncated, "shred header is truncated"),
             (Error::ShredInvalidType, "shred type flag is invalid"),
+            (Error::ShredInvalidFec, "shred fec indices are invalid"),
             (Error::ArenaExhausted, "packet arena has no free slots"),
             (Error::ArenaSlotOutOfRange, "slot index is out of range"),
             (
