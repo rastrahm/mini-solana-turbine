@@ -1,7 +1,8 @@
 //! Pipeline lógico: parse → acumular set FEC → reconstruir → destinos Turbine.
 //!
-//! El envío UDP a esos destinos es la fase 8 ([`ForwardPlan`] no transmite).
-//! Entre ingress y este módulo: cola lock-free de [`SlotId`] ([`slot_queue`]).
+//! [`ForwardPlan`] no envía: [`UdpIngress::forward_slot`](crate::UdpIngress::forward_slot)
+//! reutiliza los bytes del slot. Entre ingress y este módulo: cola lock-free
+//! de [`SlotId`] ([`slot_queue`]).
 
 use crate::arena::{PacketArena, SlotId};
 use crate::fec::{FecEngine, DEFAULT_SHARD_BYTES};
@@ -9,6 +10,7 @@ use crate::shred::{self, Shred};
 use crate::turbine::{NodeId, TurbineTree};
 use crate::Error;
 use crossbeam_channel::{Receiver, Sender};
+use std::net::SocketAddr;
 
 /// Máximo `k` / `n` de un [`Pipeline`] (arrays en stack al reconstruir).
 pub const MAX_SHARDS: usize = 16;
@@ -150,6 +152,19 @@ impl Pipeline {
     #[inline(always)]
     pub fn self_id(&self) -> NodeId {
         self.self_id
+    }
+
+    /// Purpose: Traduce el [`ForwardPlan`] a `SocketAddr` de los hijos (sin heap).
+    /// Inputs: `plan` — destinos lógicos; `out` — buffer del caller (`MAX_FORWARD` basta).
+    /// Returns: cuántos addrs se escribieron (`min(plan.len(), out.len())`), o
+    ///   `TurbineUnknownNode` si un id no está en el cluster.
+    #[inline(always)]
+    pub fn dest_addrs(&self, plan: &ForwardPlan, out: &mut [SocketAddr]) -> Result<usize, Error> {
+        let n = plan.len().min(out.len());
+        for (i, id) in plan.dests().iter().copied().enumerate().take(n) {
+            out[i] = self.tree.node(id)?.addr();
+        }
+        Ok(n)
     }
 
     /// Purpose: Parsea `bytes`, guarda el payload en scratch y calcula destinos.

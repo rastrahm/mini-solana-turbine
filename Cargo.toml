@@ -12,6 +12,13 @@ reed-solomon-simd = "3"
 tokio-uring = "0.5"
 crossbeam-channel = "0.5"
 
+[dev-dependencies]
+criterion = "0.5"
+
+[[bench]]
+name = "shred_throughput"
+harness = false
+
 [lib]
 name = "mini_solana_turbine"
 path = "src/lib.rs"

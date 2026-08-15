@@ -1,4 +1,4 @@
-//! Recepción UDP de shreds (`io_uring` en la fase 5).
+//! UDP de shreds (`io_uring`): recv a slots y send/forward sin clonar payload.
 
 pub mod datagram;
 pub mod uring_udp;

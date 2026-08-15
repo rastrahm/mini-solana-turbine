@@ -1,6 +1,6 @@
 //! Errores zero-cost del crate (`thiserror`, sin `String` ni `anyhow`).
 //!
-//! Vivos: arena, shred, FEC, ingress y árbol Turbine.
+//! Vivos: arena, shred, FEC, ingress (recv/send) y árbol Turbine.
 
 use thiserror::Error;
 
@@ -55,6 +55,10 @@ pub enum Error {
     /// Falló un recv UDP (fase 5).
     #[error("UDP ingress receive failed")]
     IngressRecv,
+
+    /// Falló un send UDP (fase 8).
+    #[error("UDP ingress send failed")]
+    IngressSend,
 
     /// El node id no está en el cluster (fase 6).
     #[error("turbine: unknown node")]
@@ -114,6 +118,7 @@ mod tests {
             (Error::FecInconsistent, "fec: shard set is inconsistent"),
             (Error::IngressBind, "UDP ingress failed to bind"),
             (Error::IngressRecv, "UDP ingress receive failed"),
+            (Error::IngressSend, "UDP ingress send failed"),
             (Error::TurbineUnknownNode, "turbine: unknown node"),
             (Error::TurbineEmptyCluster, "turbine: empty cluster"),
         ];
