@@ -3,11 +3,16 @@
 //! El payload es un subslice del buffer de entrada (slot de arena). Los headers
 //! se leen como `#[repr(C, packed)]` ([`ShredHeader`]): align 1, acceso a campos solo
 //! por valor (nunca `&header.slot`).
+//!
+//! La firma Ed25519 es educativa: `64 B` de firma **delante** del body (mismo
+//! esquema que Solana: se firma el resto del paquete). No incluye merkle root,
+//! `ShredVariant` ni el wire format de mainnet.
 
 use crate::Error;
 use core::fmt;
 use core::mem::{align_of, size_of};
 use core::ptr;
+use ed25519_dalek::{Signature, Signer, SigningKey, VerifyingKey};
 
 /// Tipo Solana-like de shred de datos (legacy data).
 pub const SHRED_TYPE_DATA: u8 = 0xA5;
@@ -24,6 +29,20 @@ pub const CODE_HEADER_SIZE: usize = size_of::<CodeShredHeader>();
 pub const DATA_SHRED_OVERHEAD: usize = COMMON_HEADER_SIZE + DATA_HEADER_SIZE;
 /// Mínimo de un code shred.
 pub const CODE_SHRED_OVERHEAD: usize = COMMON_HEADER_SIZE + CODE_HEADER_SIZE;
+/// Bytes de una firma Ed25519 (prefijo educativo del paquete firmado).
+pub const SIGNATURE_BYTES: usize = 64;
+/// Bytes de una clave pública Ed25519.
+pub const PUBLIC_KEY_BYTES: usize = 32;
+/// Bytes de una semilla / clave secreta Ed25519.
+pub const SECRET_KEY_BYTES: usize = 32;
+
+/// Clave pública del líder (32 B). No es el pubkey de mainnet Solana.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ShredPublicKey([u8; PUBLIC_KEY_BYTES]);
+
+/// Semilla Ed25519 del firmante. Debug no vuelca los bytes.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct ShredSecretKey([u8; SECRET_KEY_BYTES]);
 
 /// Header común. Packed para que `size_of` coincida con el wire (20 bytes).
 #[repr(C, packed)]
@@ -158,6 +177,60 @@ impl ShredHeader {
     #[inline(always)]
     pub const fn reserved(&self) -> u8 {
         self.reserved
+    }
+}
+
+impl ShredPublicKey {
+    /// Purpose: Construye una pubkey desde 32 bytes crudos.
+    /// Inputs: `bytes` — punto comprimido Ed25519.
+    /// Returns: la clave; la validez geométrica se comprueba al verificar.
+    #[inline(always)]
+    pub const fn from_bytes(bytes: [u8; PUBLIC_KEY_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    /// Purpose: Bytes del punto.
+    /// Inputs: none (`self` por valor).
+    /// Returns: `[u8; 32]`.
+    #[inline(always)]
+    pub const fn to_bytes(self) -> [u8; PUBLIC_KEY_BYTES] {
+        self.0
+    }
+}
+
+impl ShredSecretKey {
+    /// Purpose: Semilla de 32 bytes (cualquier valor es una seed válida).
+    /// Inputs: `bytes` — entropy / test vector.
+    /// Returns: clave para [`encode_signed_data`] / [`encode_signed_code`].
+    #[inline(always)]
+    pub const fn from_bytes(bytes: [u8; SECRET_KEY_BYTES]) -> Self {
+        Self(bytes)
+    }
+
+    /// Purpose: Pubkey derivada (clamping de Ed25519).
+    /// Inputs: none (`&self`).
+    /// Returns: [`ShredPublicKey`].
+    pub fn public(&self) -> ShredPublicKey {
+        let sk = SigningKey::from_bytes(&self.0);
+        ShredPublicKey(sk.verifying_key().to_bytes())
+    }
+}
+
+impl fmt::Debug for ShredPublicKey {
+    /// Purpose: Debug hex corto.
+    /// Inputs: `f`.
+    /// Returns: `fmt::Result`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_tuple("ShredPublicKey").field(&self.0).finish()
+    }
+}
+
+impl fmt::Debug for ShredSecretKey {
+    /// Purpose: No filtra la semilla.
+    /// Inputs: `f`.
+    /// Returns: `fmt::Result`.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("ShredSecretKey(..)")
     }
 }
 
@@ -460,6 +533,103 @@ pub fn encode_code(
     Ok(n)
 }
 
+/// Purpose: Firma el body y lo escribe como `sig[64] || body` (educativo).
+/// Inputs: `dest` — slot; `secret` — semilla; `body` — paquete ya encodeado
+///   (salida de [`encode_data`] / [`encode_code`]).
+/// Returns: `64 + body.len()`, o `ShredTruncated`.
+pub fn attach_signature(
+    dest: &mut [u8],
+    secret: &ShredSecretKey,
+    body: &[u8],
+) -> Result<usize, Error> {
+    let n = SIGNATURE_BYTES + body.len();
+    if dest.len() < n {
+        return Err(Error::ShredTruncated);
+    }
+    dest[SIGNATURE_BYTES..n].copy_from_slice(body);
+    let (sig_buf, rest) = dest.split_at_mut(SIGNATURE_BYTES);
+    write_signature(sig_buf, secret, &rest[..body.len()])?;
+    Ok(n)
+}
+
+/// Purpose: Encode data + firma en el mismo slot (prefijo 64 B).
+/// Inputs: igual que [`encode_data`] más `secret`.
+/// Returns: longitud total (`64 + overhead + payload`).
+pub fn encode_signed_data(
+    dest: &mut [u8],
+    secret: &ShredSecretKey,
+    header: ShredHeader,
+    data: DataShredHeader,
+    payload: &[u8],
+) -> Result<usize, Error> {
+    if dest.len() < SIGNATURE_BYTES {
+        return Err(Error::ShredTruncated);
+    }
+    let n = encode_data(&mut dest[SIGNATURE_BYTES..], header, data, payload)?;
+    let (sig_buf, rest) = dest.split_at_mut(SIGNATURE_BYTES);
+    write_signature(sig_buf, secret, &rest[..n])?;
+    Ok(SIGNATURE_BYTES + n)
+}
+
+/// Purpose: Encode code + firma en el mismo slot.
+/// Inputs: igual que [`encode_code`] más `secret`.
+/// Returns: longitud total.
+pub fn encode_signed_code(
+    dest: &mut [u8],
+    secret: &ShredSecretKey,
+    header: ShredHeader,
+    code: CodeShredHeader,
+    payload: &[u8],
+) -> Result<usize, Error> {
+    if dest.len() < SIGNATURE_BYTES {
+        return Err(Error::ShredTruncated);
+    }
+    let n = encode_code(&mut dest[SIGNATURE_BYTES..], header, code, payload)?;
+    let (sig_buf, rest) = dest.split_at_mut(SIGNATURE_BYTES);
+    write_signature(sig_buf, secret, &rest[..n])?;
+    Ok(SIGNATURE_BYTES + n)
+}
+
+/// Purpose: Verifica Ed25519 y devuelve el body (zero-copy, sin firma).
+/// Inputs: `bytes` — `sig || body`; `public` — líder.
+/// Returns: subslice `bytes[64..]` si la firma es válida; `ShredTruncated` /
+///   `ShredInvalidKey` / `ShredBadSignature`.
+pub fn verify_signed<'a>(bytes: &'a [u8], public: &ShredPublicKey) -> Result<&'a [u8], Error> {
+    if bytes.len() < SIGNATURE_BYTES {
+        return Err(Error::ShredTruncated);
+    }
+    let sig_bytes: [u8; SIGNATURE_BYTES] = match bytes[..SIGNATURE_BYTES].try_into() {
+        Ok(arr) => arr,
+        Err(_) => return Err(Error::ShredTruncated),
+    };
+    let vk = VerifyingKey::from_bytes(&public.0).map_err(|_| Error::ShredInvalidKey)?;
+    let sig = Signature::from_bytes(&sig_bytes);
+    let body = &bytes[SIGNATURE_BYTES..];
+    vk.verify_strict(body, &sig)
+        .map_err(|_| Error::ShredBadSignature)?;
+    Ok(body)
+}
+
+/// Purpose: Verifica la firma y parsea el body (payload sigue prestado del slot).
+/// Inputs: `bytes` — paquete firmado; `public` — líder.
+/// Returns: [`Shred`] o error de firma / parseo.
+pub fn parse_signed<'a>(bytes: &'a [u8], public: &ShredPublicKey) -> Result<Shred<'a>, Error> {
+    parse(verify_signed(bytes, public)?)
+}
+
+/// Purpose: Escribe 64 B de firma Ed25519 de `body` en `sig_out`.
+/// Inputs: `sig_out` — ≥ 64 B; `secret`; `body` — mensaje (el shred sin firma).
+/// Returns: `Ok` o `ShredTruncated`.
+fn write_signature(sig_out: &mut [u8], secret: &ShredSecretKey, body: &[u8]) -> Result<(), Error> {
+    if sig_out.len() < SIGNATURE_BYTES {
+        return Err(Error::ShredTruncated);
+    }
+    let sk = SigningKey::from_bytes(&secret.0);
+    let sig = sk.sign(body);
+    sig_out[..SIGNATURE_BYTES].copy_from_slice(&sig.to_bytes());
+    Ok(())
+}
+
 /// Purpose: Escribe un POD packed en `dest`.
 /// Inputs: `dest` — exactamente `size_of::<T>()` o más; `value` — header.
 /// Returns: `Ok(())` o `ShredTruncated`.
@@ -594,9 +764,10 @@ impl fmt::Debug for CodeShred<'_> {
 #[cfg(test)]
 mod tests {
     use super::{
-        encode_code, encode_data, parse, CodeShredHeader, DataShredHeader, Shred, ShredHeader,
+        attach_signature, encode_code, encode_data, encode_signed_code, encode_signed_data, parse,
+        parse_signed, CodeShredHeader, DataShredHeader, Shred, ShredHeader, ShredSecretKey,
         CODE_SHRED_OVERHEAD, COMMON_HEADER_SIZE, DATA_HEADER_SIZE, DATA_SHRED_OVERHEAD,
-        SHRED_TYPE_CODE, SHRED_TYPE_DATA,
+        SECRET_KEY_BYTES, SHRED_TYPE_CODE, SHRED_TYPE_DATA, SIGNATURE_BYTES,
     };
     use crate::arena::PacketArena;
     use crate::Error;
@@ -797,5 +968,138 @@ mod tests {
             shred.payload().as_ptr(),
             bytes[DATA_SHRED_OVERHEAD..].as_ptr()
         );
+    }
+
+    /// Purpose: Seed fija produce una pubkey estable.
+    /// Inputs: none.
+    /// Returns: panics si Debug de la secreta filtra bytes.
+    #[test]
+    fn secret_debug_hides_seed() {
+        let sk = ShredSecretKey::from_bytes([3u8; SECRET_KEY_BYTES]);
+        assert_eq!(format!("{:?}", sk), "ShredSecretKey(..)");
+    }
+
+    /// Purpose: Firma educativa + parse_signed round-trip, payload zero-copy.
+    /// Inputs: none.
+    /// Returns: panics si no verifica o el payload no apunta al body.
+    #[test]
+    fn signed_data_round_trip() {
+        let sk = ShredSecretKey::from_bytes([7u8; SECRET_KEY_BYTES]);
+        let pk = sk.public();
+        let mut buf = [0u8; 128];
+        let n = encode_signed_data(
+            &mut buf,
+            &sk,
+            ShredHeader::data(1, 0, 0, 1),
+            DataShredHeader::new(1, 0),
+            b"sig-body",
+        )
+        .expect("encode signed");
+        let shred = parse_signed(&buf[..n], &pk).expect("verify parse");
+        let Shred::Data(ds) = shred else {
+            panic!("expected data");
+        };
+        assert_eq!(ds.payload(), b"sig-body");
+        assert_eq!(
+            shred.payload().as_ptr(),
+            buf[SIGNATURE_BYTES + DATA_SHRED_OVERHEAD..n].as_ptr()
+        );
+        assert_eq!(parse(&buf[..n]).err(), Some(Error::ShredInvalidType));
+    }
+
+    /// Purpose: `attach_signature` sobre un body ya encodeado equivale a encode_signed.
+    /// Inputs: none.
+    /// Returns: panics si las longitudes o el parse difieren.
+    #[test]
+    fn attach_signature_over_encoded_body() {
+        let sk = ShredSecretKey::from_bytes([8u8; SECRET_KEY_BYTES]);
+        let mut body = [0u8; 64];
+        let nb = encode_data(
+            &mut body,
+            ShredHeader::data(1, 0, 0, 1),
+            DataShredHeader::new(1, 0),
+            b"att",
+        )
+        .expect("body");
+        let mut pkt = [0u8; 128];
+        let n = attach_signature(&mut pkt, &sk, &body[..nb]).expect("attach");
+        parse_signed(&pkt[..n], &sk.public()).expect("verify");
+        assert_eq!(n, SIGNATURE_BYTES + nb);
+    }
+
+    /// Purpose: Bit flip en el body invalida la firma.
+    /// Inputs: none.
+    /// Returns: panics si no es `ShredBadSignature`.
+    #[test]
+    fn signed_rejects_tampered_body() {
+        let sk = ShredSecretKey::from_bytes([9u8; SECRET_KEY_BYTES]);
+        let pk = sk.public();
+        let mut buf = [0u8; 128];
+        let n = encode_signed_data(
+            &mut buf,
+            &sk,
+            ShredHeader::data(1, 0, 0, 1),
+            DataShredHeader::new(1, 0),
+            b"aaaa",
+        )
+        .expect("encode");
+        buf[n - 1] ^= 0x01;
+        assert_eq!(parse_signed(&buf[..n], &pk), Err(Error::ShredBadSignature));
+    }
+
+    /// Purpose: Otra seed no verifica.
+    /// Inputs: none.
+    /// Returns: panics si no es `ShredBadSignature`.
+    #[test]
+    fn signed_rejects_wrong_key() {
+        let sk = ShredSecretKey::from_bytes([1u8; SECRET_KEY_BYTES]);
+        let other = ShredSecretKey::from_bytes([2u8; SECRET_KEY_BYTES]).public();
+        let mut buf = [0u8; 128];
+        let n = encode_signed_data(
+            &mut buf,
+            &sk,
+            ShredHeader::data(1, 0, 0, 1),
+            DataShredHeader::new(1, 0),
+            b"x",
+        )
+        .expect("encode");
+        assert_eq!(
+            parse_signed(&buf[..n], &other),
+            Err(Error::ShredBadSignature)
+        );
+    }
+
+    /// Purpose: Menos de 64 B no cubre la firma.
+    /// Inputs: none.
+    /// Returns: panics si no es `ShredTruncated`.
+    #[test]
+    fn signed_truncated_is_truncated() {
+        let pk = ShredSecretKey::from_bytes([1u8; SECRET_KEY_BYTES]).public();
+        assert_eq!(
+            parse_signed(&[0u8; SIGNATURE_BYTES - 1], &pk),
+            Err(Error::ShredTruncated)
+        );
+    }
+
+    /// Purpose: Code shred firmado parsea.
+    /// Inputs: none.
+    /// Returns: panics si el payload no coincide.
+    #[test]
+    fn signed_code_round_trip() {
+        let sk = ShredSecretKey::from_bytes([4u8; SECRET_KEY_BYTES]);
+        let mut buf = [0u8; 128];
+        let n = encode_signed_code(
+            &mut buf,
+            &sk,
+            ShredHeader::code(1, 0, 1, 1),
+            CodeShredHeader::new(2, 1, 0),
+            &[0x11, 0x22],
+        )
+        .expect("encode code");
+        let shred = parse_signed(&buf[..n], &sk.public()).expect("parse");
+        let Shred::Code(cs) = shred else {
+            panic!("expected code");
+        };
+        assert_eq!(cs.payload(), &[0x11, 0x22]);
     }
 }

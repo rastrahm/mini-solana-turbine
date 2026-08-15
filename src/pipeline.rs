@@ -1,12 +1,15 @@
 //! Pipeline lógico: parse → acumular set FEC → reconstruir → destinos Turbine.
 //!
-//! [`ForwardPlan`] no envía: [`UdpIngress::forward_slot`](crate::UdpIngress::forward_slot)
-//! reutiliza los bytes del slot. Entre ingress y este módulo: cola lock-free
-//! de [`SlotId`] ([`slot_queue`]).
+//! El envío UDP (feature `uring`) reutiliza los bytes del slot. Entre ingress y
+//! este módulo: cola lock-free de [`SlotId`] ([`slot_queue`]).
+//!
+//! Requiere feature `simd`. Métricas en [`Metrics`]. Firma opcional del líder
+//! vía [`Pipeline::require_leader`].
 
 use crate::arena::{PacketArena, SlotId};
 use crate::fec::{FecEngine, DEFAULT_SHARD_BYTES};
-use crate::shred::{self, Shred};
+use crate::metrics::Metrics;
+use crate::shred::{self, Shred, ShredPublicKey};
 use crate::turbine::{NodeId, TurbineTree};
 use crate::Error;
 use crossbeam_channel::{Receiver, Sender};
@@ -49,6 +52,8 @@ pub struct Pipeline {
     rec_present: Box<[bool]>,
     restored: Box<[u8]>,
     fec_set_index: Option<u32>,
+    metrics: Metrics,
+    leader: Option<ShredPublicKey>,
 }
 
 impl ForwardPlan {
@@ -136,6 +141,8 @@ impl Pipeline {
             tree,
             self_id,
             fec_set_index: None,
+            metrics: Metrics::new(),
+            leader: None,
         })
     }
 
@@ -154,6 +161,28 @@ impl Pipeline {
         self.self_id
     }
 
+    /// Purpose: Contadores atómicos (`received` / `reconstructed` / `dropped`).
+    /// Inputs: none.
+    /// Returns: referencia a [`Metrics`] (lecturas `Relaxed`).
+    #[inline(always)]
+    pub fn metrics(&self) -> &Metrics {
+        &self.metrics
+    }
+
+    /// Purpose: A partir de ahora `ingest` exige paquete `sig[64] || body`.
+    /// Inputs: `pk` — pubkey educativa del líder.
+    /// Returns: none.
+    pub fn require_leader(&mut self, pk: ShredPublicKey) {
+        self.leader = Some(pk);
+    }
+
+    /// Purpose: Vuelve al parseo sin firma (compatibilidad con fases 3–8).
+    /// Inputs: none.
+    /// Returns: none.
+    pub fn clear_leader(&mut self) {
+        self.leader = None;
+    }
+
     /// Purpose: Traduce el [`ForwardPlan`] a `SocketAddr` de los hijos (sin heap).
     /// Inputs: `plan` — destinos lógicos; `out` — buffer del caller (`MAX_FORWARD` basta).
     /// Returns: cuántos addrs se escribieron (`min(plan.len(), out.len())`), o
@@ -169,9 +198,32 @@ impl Pipeline {
 
     /// Purpose: Parsea `bytes`, guarda el payload en scratch y calcula destinos.
     /// Inputs: `bytes` — paquete completo (slot o buffer de test), no se clona a un `Vec`.
+    ///   Si hay líder, debe ser `sig || body`.
     /// Returns: reconstrucciones + [`ForwardPlan`]; el payload se copia al scratch del set FEC.
+    ///   Siempre incrementa `received`; en error también `dropped`.
     pub fn ingest_bytes(&mut self, bytes: &[u8]) -> Result<IngestResult, Error> {
-        let shred = shred::parse(bytes)?;
+        self.metrics.record_received();
+        match self.ingest_bytes_inner(bytes) {
+            Ok(result) => {
+                self.metrics
+                    .record_reconstructed(result.reconstructed as u64);
+                Ok(result)
+            }
+            Err(err) => {
+                self.metrics.record_dropped();
+                Err(err)
+            }
+        }
+    }
+
+    /// Purpose: Parse (+ firma opcional) y FEC sin tocar contadores.
+    /// Inputs: `bytes` — mismo contrato que [`ingest_bytes`].
+    /// Returns: igual que `ingest_bytes` sin métricas.
+    fn ingest_bytes_inner(&mut self, bytes: &[u8]) -> Result<IngestResult, Error> {
+        let shred = match self.leader {
+            Some(pk) => shred::parse_signed(bytes, &pk)?,
+            None => shred::parse(bytes)?,
+        };
         self.store_shred(shred)?;
         let reconstructed = self.try_reconstruct()?;
         let forward = self.plan_forward()?;

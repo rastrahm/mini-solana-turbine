@@ -10,11 +10,13 @@
 - **Language & Standard:** Rust (2021 edition or newer).
 - **Crate layout:** un solo crate (no workspace). Seguir el árbol de la sección 3.
 - **Core Dependencies:**
-  - `tokio` & `tokio-uring` (Linux `io_uring` async UDP sockets)
-  - `reed-solomon-simd` (AVX2 / SIMD-accelerated erasure coding)
-  - `crossbeam-epoch` / `dashmap` / `crossbeam-channel` (lock-free; no `Bytes` para payloads)
+  - `tokio-uring` (feature `uring`; Linux `io_uring` async UDP)
+  - `reed-solomon-simd` (feature `simd`; AVX2 / SIMD erasure coding)
+  - `ed25519-dalek` (firmas educativas de shred)
+  - `crossbeam-channel` (lock-free; no `Bytes` para payloads)
   - `thiserror` (únicos errores de crate y binario; **no** `anyhow`)
   - `criterion` (benchmarks)
+- **Features:** `default = ["uring", "simd"]`. `Pipeline`/`FecEngine` piden `simd`; `UdpIngress` pide `uring`.
 - **Target OS:** Linux x86_64 (Kernel 6.8+).
 - **Forbidden Patterns:**
   - Cero allocs de heap en hot paths (no `Vec`/`Box`/`String`/`Bytes` para paquetes).
@@ -49,14 +51,15 @@ mini-solana-turbine/
 │   ├── main.rs
 │   ├── error.rs            # thiserror enum (variantes placeholder por fase)
 │   ├── arena.rs            # Slots fijos, acquire/release, slices sobre backing único
-│   ├── pipeline.rs         # ingest → parse → FEC → ForwardPlan
-│   ├── shred.rs            # Binary Shred layouts (Data vs Code) & Zero-Copy parsing
+│   ├── pipeline.rs         # ingest → parse → FEC → ForwardPlan (`simd`)
+│   ├── metrics.rs          # AtomicU64: received / reconstructed / dropped
+│   ├── shred.rs            # Binary shred + firma Ed25519 educativa
 │   ├── ingress/
-│   │   ├── mod.rs
-│   │   └── uring_udp.rs    # io_uring UDP ring buffer receiver
+│   │   ├── mod.rs          # parse_addr; RecvDatagram
+│   │   └── uring_udp.rs    # io_uring UDP (`uring`)
 │   ├── fec/
 │   │   ├── mod.rs
-│   │   └── reed_solomon.rs # SIMD Erasure Coding decoder & reconstruction
+│   │   └── reed_solomon.rs # SIMD RS (`simd`)
 │   └── turbine/
 │       ├── mod.rs
 │       └── tree.rs         # Stake-weighted fanout tree calculation & routing

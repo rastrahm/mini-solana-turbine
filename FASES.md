@@ -194,11 +194,19 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 
 ---
 
-## Extra opcional (solo si se autoriza después)
+## Extra opcional
+
+**Estado:** cerrada.
+
+**Alcance**
 
 - Verificación de firma de shred (compatibilidad educativa, no 100% Solana protocol).
 - Métricas atómicas (`AtomicU64`: recibidos, reconstruidos, dropped).
-- Feature flags en `Cargo.toml` (`uring`, `simd`).
+- Feature flags en `Cargo.toml` (`uring`, `simd` opcionales; default ambas).
+
+**Fuera de alcance:** layout 100% Solana (merkle, `ShredVariant`, gossip).
+
+**Criterio de cierre:** tests del extra verdes; `cargo test --no-default-features` compila.
 
 ---
 
@@ -224,6 +232,7 @@ Un solo crate. Cada fase requiere autorización explícita antes de empezar. Al 
 | 6 | `src/turbine/tree.rs` |
 | 7 | `src/pipeline.rs`, `src/main.rs`, `tests/` |
 | 8 | `benches/shred_throughput.rs`, send path |
+| extra | `src/metrics.rs`, firmas en `shred.rs`, features `uring`/`simd` |
 
 ---
 

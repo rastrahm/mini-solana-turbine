@@ -1,4 +1,4 @@
-//! Erasure coding SIMD (Reed-Solomon) para reconstruir shreds.
+//! Erasure coding SIMD (Reed-Solomon). Feature `simd`.
 
 pub mod reed_solomon;
 
