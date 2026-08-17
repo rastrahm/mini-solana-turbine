@@ -1,6 +1,9 @@
 //! Arranque del validador: argumentos, cluster de ejemplo y flujo documentado.
 //!
-//! No abre el loop `io_uring` (eso bloquearía). Enlace mental:
+//! Sin flags: no abre `io_uring`. Con `--debug-udp` (feature `uring`): genera una
+//! petición UDP de loopback y recorre recv → ingest → fanout.
+//!
+//! Enlace mental:
 //! `recv_into` → [`slot_queue`] → [`Pipeline::ingest_slot`] → [`Pipeline::dest_addrs`]
 //! → send del slot (feature `uring`). Extra: métricas atómicas y firma opcional.
 
@@ -10,6 +13,9 @@ use mini_solana_turbine::{parse_addr, Error};
 use std::env;
 use std::io::{self, Write};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+#[cfg(feature = "uring")]
+mod debug_udp;
 
 /// Purpose: `SocketAddr` de ejemplo `127.0.0.1:9000+id`.
 /// Inputs: `id`.
@@ -30,6 +36,13 @@ fn bind_from_args() -> Result<SocketAddr, Error> {
     parse_addr("127.0.0.1:8001")
 }
 
+/// Purpose: ¿El usuario pidió la sesión de loopback UDP?
+/// Inputs: `std::env::args`.
+/// Returns: `true` si aparece `--debug-udp`.
+fn wants_debug_udp() -> bool {
+    env::args().skip(1).any(|a| a == "--debug-udp")
+}
+
 /// Purpose: Cluster de 4 nodos de demostración; id 1 es raíz.
 /// Inputs: none.
 /// Returns: árbol fanout 2.
@@ -45,10 +58,38 @@ fn demo_tree() -> Result<mini_solana_turbine::TurbineTree, Error> {
     )
 }
 
-/// Purpose: Punto de entrada. Valida bind, construye pipeline, escribe el flujo.
+/// Purpose: Punto de entrada. `--debug-udp` o documentación del flujo.
+/// Inputs: `--bind=ip:port` y/o `--debug-udp`.
+/// Returns: `Ok(())` o error de parseo/red/FEC.
+fn main() -> Result<(), Error> {
+    if wants_debug_udp() {
+        return run_debug_udp();
+    }
+    print_flow_docs()
+}
+
+/// Purpose: Arranca io_uring y recorre una petición UDP de extremo a extremo.
+/// Inputs: none (puertos efímeros; ignora `--bind` para no chocar).
+/// Returns: resultado de la sesión, o aviso si falta feature `uring`.
+fn run_debug_udp() -> Result<(), Error> {
+    #[cfg(feature = "uring")]
+    {
+        tokio_uring::start(debug_udp::run_session())
+    }
+    #[cfg(not(feature = "uring"))]
+    {
+        let _ = writeln!(
+            io::stderr(),
+            " --debug-udp requiere feature `uring` (p.ej. cargo run --features uring,simd -- --debug-udp)"
+        );
+        Err(Error::Unimplemented { module: "uring" })
+    }
+}
+
+/// Purpose: Valida bind, construye pipeline, escribe el flujo (sin red).
 /// Inputs: `--bind=ip:port` opcional.
 /// Returns: `Ok(())` tras documentar; error de parseo/árbol/FEC.
-fn main() -> Result<(), Error> {
+fn print_flow_docs() -> Result<(), Error> {
     let bind = bind_from_args()?;
     let tree = demo_tree()?;
     let self_id = NodeId::new(1);
@@ -63,7 +104,8 @@ fn main() -> Result<(), Error> {
          flujo: UDP recv_into(arena) -> slot_queue -> Pipeline::ingest_slot\n\
          ingest: [firma opcional] parse shred -> scratch FEC -> ForwardPlan\n\
          send: dest_addrs(plan) -> forward_slot (feature uring)\n\
-         features: default=[uring,simd]",
+         features: default=[uring,simd]\n\
+         debug: cargo run -- --debug-udp   (genera la petición UDP y la recorre)",
         pipeline.self_id(),
         m.received(),
         m.reconstructed(),

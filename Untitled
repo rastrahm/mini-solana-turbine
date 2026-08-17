@@ -1,0 +1,5 @@
+Console is in 'commands' mode, prefix expressions with '?'.
+Loading Rust formatters from /home/rolando/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/lib/rustlib/etc
+Launching: /home/rolando/Programacion/mini-solana-turbine/target/debug/mini-solana-turbine --debug-udp
+Launched process 36154 from '/home/rolando/Programacion/mini-solana-turbine/target/debug/mini-solana-turbine'
+Process exited with code 0.
