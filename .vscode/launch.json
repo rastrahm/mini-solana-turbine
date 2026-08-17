@@ -1,0 +1,91 @@
+{
+  // Depurar en Cursor: Run and Debug (Ctrl+Shift+D) → elegir config → F5.
+  // Punto de origen UDP: src/debug_udp.rs (cliente send_to) y
+  // src/ingress/uring_udp.rs (send_slot / forward_slot).
+  // Requiere la extensión CodeLLDB (vadimcn.vscode-lldb).
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug UDP (--debug-udp)",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=mini-solana-turbine",
+          "--package=mini-solana-turbine"
+        ],
+        "filter": {
+          "name": "mini-solana-turbine",
+          "kind": "bin"
+        }
+      },
+      "args": ["--debug-udp"],
+      "cwd": "${workspaceFolder}",
+      "terminal": "integrated"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug binario (solo docs, sin socket)",
+      "cargo": {
+        "args": [
+          "build",
+          "--bin=mini-solana-turbine",
+          "--package=mini-solana-turbine"
+        ],
+        "filter": {
+          "name": "mini-solana-turbine",
+          "kind": "bin"
+        }
+      },
+      "args": [],
+      "cwd": "${workspaceFolder}",
+      "terminal": "integrated"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug test forward_udp",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--test=forward_udp",
+          "--package=mini-solana-turbine"
+        ],
+        "filter": {
+          "name": "forward_udp",
+          "kind": "test"
+        }
+      },
+      "args": ["forward_slot_reaches_tree_children", "--exact", "--nocapture"],
+      "cwd": "${workspaceFolder}",
+      "terminal": "integrated"
+    },
+    {
+      "type": "lldb",
+      "request": "launch",
+      "name": "Debug test send_slot (lib)",
+      "cargo": {
+        "args": [
+          "test",
+          "--no-run",
+          "--lib",
+          "--package=mini-solana-turbine"
+        ],
+        "filter": {
+          "name": "mini_solana_turbine",
+          "kind": "lib"
+        }
+      },
+      "args": [
+        "ingress::uring_udp::tests::send_slot_loopback_reuses_arena",
+        "--exact",
+        "--nocapture"
+      ],
+      "cwd": "${workspaceFolder}",
+      "terminal": "integrated"
+    }
+  ]
+}

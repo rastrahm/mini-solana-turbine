@@ -324,7 +324,22 @@ Without `--bind=` it uses `127.0.0.1:8001`. The process:
 4. Prints self, metrics (zeros), and the documentary flow.
 5. Exits. It does **not** call `recv_into`.
 
-A real loop would: `tokio_uring::start`, bind, `acquire`/`recv_into`/`try_send(SlotId)`/`ingest_slot`/`dest_addrs`/`forward_slot`/`release`. That is intentionally not in `main`.
+A real loop would: `tokio_uring::start`, bind, `acquire`/`recv_into`/`try_send(SlotId)`/`ingest_slot`/`dest_addrs`/`forward_slot`/`release`.
+
+**Debug the UDP origin** (one-shot loopback, `uring` feature):
+
+```bash
+cargo run -- --debug-udp
+```
+
+In Cursor: install **CodeLLDB**, open Run and Debug (`Ctrl+Shift+D`), pick **Debug UDP (--debug-udp)**, press F5. Useful breakpoints: `src/debug_udp.rs` (`send_to`) and `src/ingress/uring_udp.rs` (`send_slot`). Config: `.vscode/launch.json`.
+
+1. A `std::net::UdpSocket::send_to` client **generates the request** (encoded data shred).
+2. `UdpIngress::recv_into` writes it into an arena slot.
+3. `Pipeline::ingest_slot` parses it and builds the `ForwardPlan`.
+4. `forward_slot` resends the **same bytes** to two std children.
+
+Without that flag the binary does not open sockets. UDP requests are not produced by a production loop: they come from tests (`tests/forward_udp.rs`, `src/ingress/uring_udp.rs`) or from `--debug-udp`.
 
 ---
 
